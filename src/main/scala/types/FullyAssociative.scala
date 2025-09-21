@@ -12,31 +12,11 @@ import chisel3.stage.ChiselStage
   */
 class FullyAssociative extends Module {
   val io = IO(new Bundle {
-    val value1        = Input(UInt(16.W))
-    val value2        = Input(UInt(16.W))
-    val loadingValues = Input(Bool())
-    val outputGCD     = Output(UInt(16.W))
-    val outputValid   = Output(Bool())
+    val in = Input(UInt(4.W))
+    val out = Output(UInt(4.W))
   })
+  val reg = RegInit(0.U)
 
-  val x  = Reg(UInt())
-  val y  = Reg(UInt())
-
-  when(x > y) { x := x - y }
-    .otherwise { y := y - x }
-
-  when(io.loadingValues) {
-    x := io.value1
-    y := io.value2
-  }
-
-  io.outputGCD := x
-  io.outputValid := y === 0.U
-}
-
-/**
- * Generate Verilog sources and save it in file GCD.v
- */
-object GCD extends App {
-  new ChiselStage().emitVerilog(new GCD)
+  reg := io.in
+  io.out := reg
 }
