@@ -5,6 +5,7 @@ package cachematic.gcd
 import chisel3._
 import org.scalatest.freespec.AnyFreeSpec
 import chiseltest._
+import scala.math._
 
 /**
   * This is a trivial example of how to run this Specification
@@ -51,7 +52,7 @@ class GCDSpec extends AnyFreeSpec with ChiselScalatestTester {
         if (received < 100) {
           dut.output.ready.poke(true.B)
           if (dut.output.valid.peek().litToBoolean) {
-            dut.output.bits.gcd.expect(BigInt(testValues(received)._1).gcd(testValues(received)._2))
+            dut.output.bits.gcd.expect(BigInt(testValues(received)._1).gcd(BigInt(testValues(received)._2)).U)
             received += 1
           }
         }
