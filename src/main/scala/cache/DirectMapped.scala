@@ -1,4 +1,6 @@
-package cachematic.types
+// See README.md for license details.
+
+package cachematic.cache
 
 import chisel3._
 import chisel3.util._
