@@ -5,7 +5,10 @@ package cachematic.cache
 import chisel3._
 import chisel3.util._
 
-class DirectMappedCache(val cacheSizeBytes: Int, val blockSizeBytes: Int) extends Module {
+/**
+  * TODO: subclass `SetAssociative` cache with K way and 1 set
+  */ 
+class DirectMapped(val cacheSizeBytes: Int, val blockSizeBytes: Int) extends Module {
   val addrWidth = 32 // assuming 32bit addr
 
   val io = IO(new Bundle {

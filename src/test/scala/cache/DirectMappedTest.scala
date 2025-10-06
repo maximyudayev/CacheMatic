@@ -1,4 +1,6 @@
-package cachematic.types
+// See README.md for license details.
+
+package cachematic.cache
 
 import chisel3._
 import chiseltest._
@@ -6,12 +8,22 @@ import chiseltest.simulator.WriteVcdAnnotation
 import org.scalatest.flatspec.AnyFlatSpec
 import org.scalatest.matchers.should.Matchers
 
-class DirectMappedCacheTest extends AnyFlatSpec with ChiselScalatestTester with Matchers {
+/**
+  * Unit test of top-level Direct Mapped Cache implementation
+  *
+  * From a terminal shell use:
+  * {{{
+  * sbt 'testOnly cachematic.cache.DirectMappedTest'
+  * }}}
+  *
+  * TODO: update arguments in DirectMapped constructor after subclassing SetAssociative
+  */
+class DirectMappedTest extends AnyFlatSpec with ChiselScalatestTester with Matchers {
 
-  behavior of "DirectMappedCache"
+  behavior of "DirectMapped"
 
   it should "detect hits and misses correctly" in {
-    test(new DirectMappedCache(cacheSizeBytes = 1024, blockSizeBytes = 16))
+    test(new DirectMapped(cacheSizeBytes = 1024, blockSizeBytes = 16))
       .withAnnotations(Seq(WriteVcdAnnotation)) { c =>   // <-- Enable VCD dump
 
       // helper fun to apply address & clockstep
@@ -20,7 +32,6 @@ class DirectMappedCacheTest extends AnyFlatSpec with ChiselScalatestTester with 
         c.clock.step(1) // one cycle per access
       }
 
-    
       // first Address Access ; Cold Miss (cache is empty initially)
       val addr1 = BigInt("CAFEBABE", 16)  // random 32-bit address
       sendAddr(addr1)

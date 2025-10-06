@@ -4,8 +4,9 @@ package cachematic.store
 
 import chisel3._
 import chisel3.util._
+
 import cachematic.util.chisel.Comp
-import cachematic.util.datatypes.Tag
+import cachematic.datatypes.Tag
 
 /**
   * Tag compare module
@@ -24,7 +25,7 @@ class TagMatch(numWays: Int, private val tagType: Tag) extends Module {
 
   // K-way parallel tag comparators
   val vecTagComparators = VecInit(Seq.tabulate(numWays) {x => Comp(io.tag, io.vecTags(x).tagBits)})
-  io.isHit := vecTagComparators.orR
+  io.isHit := vecTagComparators.asUInt.orR
   
   // Encode position into index for data store multiplexer
   io.idWay := MuxCase(DontCare, Array.tabulate(numWays) {x => (vecTagComparators(x), x.U(widthIdWay.W))})

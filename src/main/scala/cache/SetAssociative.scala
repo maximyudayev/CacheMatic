@@ -4,16 +4,19 @@ package cachematic.cache
 
 import chisel3._
 import chisel3.util._
-import cachematic.util.scala.isPowerOfTwo
-import cachematic.store.{TagStore, DataStore}
 
-object CacheControllerState extends ChiselEnum {
-  val sIdle, sPending, sInvalidate, sFetch, sReturn = Value
-}
+import cachematic.util.scala.isPowerOfTwo
+import cachematic.datatypes.{CacheInterface, MainMemoryAddress}
+import cachematic.store.ParallelCompare
+
+  object CacheControllerState extends ChiselEnum {
+    val sIdle, sPending, sInvalidate, sFetch, sReturn = Value
+  }
 
 /**
   * Has decoupled interface for initiating read/write, and for data output
-  * TODO: Factor out different submodules into reusable building blocks for other caches
+  * TODO:
+  *   - Add delay parameter to emulate access latency of a memory technology
   */
 class SetAssociative(mmSize: Int, blockSize: Int, wordSize: Int, numSets: Int, numWays: Int) extends Module {
   require(mmSize > 0,                         "Main memory size must be a positive number")
@@ -23,10 +26,12 @@ class SetAssociative(mmSize: Int, blockSize: Int, wordSize: Int, numSets: Int, n
   require(numWays > 0,                        "Number of ways must be a positive number")
   require(numSets*numWays*blockSize < mmSize, "Cache size must be smaller than the size of addressable main memory")
 
+  import CacheControllerState._
+
   val cacheSize = numSets * numWays * blockSize
   val numAddrBits = log2Ceil(mmSize)
-  val numBlockOffsetBits = log2(blockSize)
-  val numSetBits = log2(numSets)
+  val numBlockOffsetBits = log2Ceil(blockSize)
+  val numSetBits = log2Ceil(numSets)
   val numTagBits = numAddrBits - (numSetBits + numBlockOffsetBits)
 
   val io = IO(new Bundle {
@@ -38,10 +43,7 @@ class SetAssociative(mmSize: Int, blockSize: Int, wordSize: Int, numSets: Int, n
   val outValidReg = RegInit(false.B)
   val requestReg = Reg(new CacheInterface(new MainMemoryAddress(numTagBits, numSetBits, numBlockOffsetBits)))
   
-  val requestAddr = requestReg.addr
-
-  // TODO:
-  val cache = Module(new SerialCompare())
+  val cache = Module(new ParallelCompare(numSets, numWays, blockSize, wordSize, requestReg.addr))
 
 /**
   * FSM
@@ -49,40 +51,40 @@ class SetAssociative(mmSize: Int, blockSize: Int, wordSize: Int, numSets: Int, n
   val stateReg = RegInit(sIdle)
 
   // State transitions
-  switch (stateReg) {
-    is (sIdle) {
-      when (io.in.valid) {
-        stateReg := sPending
-      }
-    }
-    is (sPending) {
-      when () { // hit
+  // switch (stateReg) {
+  //   is (sIdle) {
+  //     when (io.in.valid) {
+  //       stateReg := sPending
+  //     }
+  //   }
+  //   is (sPending) {
+  //     when () { // hit
 
-      } .elsewhen () { // miss
+  //     } .elsewhen () { // miss
 
-      }
-    }
-    is (sReturn) {
-      when (io.out.ready) {
-        stateReg := sIdle
-      }
-    }
-  }
+  //     }
+  //   }
+  //   is (sReturn) {
+  //     when (io.out.ready) {
+  //       stateReg := sIdle
+  //     }
+  //   }
+  // }
 
   // State logic
-  switch (stateReg) {
-    is (sIdle) {
-      when (io.in.valid) {
-        requestReg := io.in.bits
-        inReadyReg := false.B
-      }
-    }
-    is (sPending) {
+  // switch (stateReg) {
+  //   is (sIdle) {
+  //     when (io.in.valid) {
+  //       requestReg := io.in.bits
+  //       inReadyReg := false.B
+  //     }
+  //   }
+  //   is (sPending) {
 
-    }
-    is (sReturn) {
+  //   }
+  //   is (sReturn) {
 
-    }
-  }
+  //   }
+  // }
 
 }

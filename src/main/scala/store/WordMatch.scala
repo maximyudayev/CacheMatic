@@ -5,6 +5,8 @@ package cachematic.store
 import chisel3._
 import chisel3.util._
 
+import cachematic.util.scala.isPowerOfTwo 
+
 /**
   * Word extract module
   */
@@ -27,5 +29,5 @@ class WordMatch(numWays: Int, blockSize: Int, wordSize: Int, numBlockOffsetBits:
   val block = io.vecWords(io.idWay)
   
   // Get block at the offset indicated by offset bits
-  io.wordOut := block(blockOffset)
+  io.wordOut := block(io.blockOffset)
 }

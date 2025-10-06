@@ -4,6 +4,7 @@ package cachematic.store
 
 import chisel3._
 import chisel3.util._
+
 import cachematic.util.scala.isPowerOfTwo
 import cachematic.store.Store
 import cachematic.datatypes.{Tag, MainMemoryAddress}
@@ -33,7 +34,7 @@ class ParallelCompare(numSets: Int, numWays: Int, blockSize: Int, wordSize: Int,
   })
 
   // Datatypes for convenience
-  val tagStoreEntry = new Tag(mmAddr.numTagBits)
+  val tagStoreEntry = new Tag(mmAddrType.numTagBits)
   val dataStoreEntry = Vec(blockSize, UInt(wordSize.W))
 
   // Tag store control signals
@@ -49,19 +50,19 @@ class ParallelCompare(numSets: Int, numWays: Int, blockSize: Int, wordSize: Int,
   val dataOutDataStore = Wire(Vec(numWays, dataStoreEntry))
 
   // Submodules
-  val tagStore = Module(new Store(numSets, numWays, tagStoreEntry))
+  val tagStore = Module(new Store(numSets, numWays, 0, tagStoreEntry))
   val tagMatch = Module(new TagMatch(numWays, tagStoreEntry))
-  val dataStore = Module(new Store(numSets, numWays, dataStoreEntry))
-  val blockMatch = Module(new WordMatch(numWays, blockSize, wordSize, mmAddr.numBlockOffsetBits))
+  val dataStore = Module(new Store(numSets, numWays, 0, dataStoreEntry))
+  val blockMatch = Module(new WordMatch(numWays, blockSize, wordSize, mmAddrType.numBlockOffsetBits))
 
-  tagStore.io.addr := io.mmAddr.setId
-  dataStore.io.addr := io.mmAddr.setId
+  tagStore.in.bits.addr := io.mmAddr.setId
+  dataStore.in.bits.addr := io.mmAddr.setId
 
   tagMatch.io.tag := io.mmAddr.tag
-  tagMatch.io.vecTags := tagStore.io.dataOut
+  tagMatch.io.vecTags := tagStore.out.bits.dataOut
 
   blockMatch.io.idWay := tagMatch.io.idWay
-  blockMatch.io.vecWords := dataStore.io.dataOut
+  blockMatch.io.vecWords := dataStore.out.bits.dataOut
   blockMatch.io.blockOffset := io.mmAddr.blockOffset
 
   // TODO: Connect both stores to the control signals of the FSM

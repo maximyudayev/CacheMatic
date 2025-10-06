@@ -25,7 +25,7 @@ class Cache(val cacheSizeBytes: Int, val blockSizeBytes: Int, val accessType: UI
   })
 
   // direct-mapped technique
-  val dcache = Module(new DirectMappedCache(cacheSizeBytes, blockSizeBytes))
+  val dcache = Module(new DirectMapped(cacheSizeBytes, blockSizeBytes))
 
   dcache.io.address := io.addr
 
