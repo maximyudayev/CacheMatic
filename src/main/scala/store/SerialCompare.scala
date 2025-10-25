@@ -53,7 +53,7 @@ class SerialCompare(numSets: Int, numWays: Int, blockSize: Int, wordSize: Int, p
   val tagStore = Module(new Store(numSets, 0, Vec(numWays, tagStoreEntry)))
   val tagMatch = Module(new TagMatch(numWays, tagStoreEntry))
   val dataStore = Module(new Store(numSets, 0, Vec(numWays, dataStoreEntry)))
-  val blockMatch = Module(new WordMatch(numWays, blockSize, wordSize, mmAddrType.numBlockOffsetBits))
+  val blockMatch = Module(new WordMatch(numWays, blockSize, wordSize))
 
   // Connect both stores to the set field of the requested main memory address
   tagStore.in.bits.addr := io.mmAddr.setId

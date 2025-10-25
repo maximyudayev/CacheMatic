@@ -53,7 +53,7 @@ class ParallelCompare(numSets: Int, numWays: Int, blockSize: Int, wordSize: Int,
   val tagStore = Module(new Store(numSets, 0, Vec(numWays, tagStoreEntry)))
   val tagMatch = Module(new TagMatch(numWays, tagStoreEntry))
   val dataStore = Module(new Store(numSets, 0, Vec(numWays, dataStoreEntry)))
-  val wordMatch = Module(new WordMatch(numWays, blockSize, wordSize, mmAddrType.numBlockOffsetBits))
+  val wordMatch = Module(new WordMatch(numWays, blockSize, wordSize))
 
   tagStore.in.bits.addr := io.mmAddr.setId
   dataStore.in.bits.addr := io.mmAddr.setId
