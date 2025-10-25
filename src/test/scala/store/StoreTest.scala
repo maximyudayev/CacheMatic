@@ -2,11 +2,12 @@
 
 package cachematic.store
 
-import chisel3._
+import scala.math._
 import org.scalatest.flatspec.AnyFlatSpec
+
+import chisel3._
 import chiseltest.simulator.WriteVcdAnnotation
 import chiseltest._
-import scala.math._
 
 /**
   * Unit test of decoupled tag/data store R/W operations, with internal specified delay
@@ -21,59 +22,92 @@ import scala.math._
   * TODO: implement test vectors for burst reads/writes
   */
 class StoreTest extends AnyFlatSpec with ChiselScalatestTester {
+  def step(dut: Store[_ <: Data], n: Int = 1) = {
+    dut.clock.step(n)
+  }
 
-  behavior of "Store" 
-  
+  def startup(dut: Store[_ <: Data]) = {
+    dut.in.bits.isWrite.poke(false.B)
+    dut.in.valid.poke(false.B)
+    dut.out.ready.poke(false.B)
+    dut.out.valid.expect(false.B)
+    step(dut)
+  }
+
+  def checkIdle(dut: Store[_ <: Data]) = {
+    dut.in.ready.expect(true.B)
+    dut.out.valid.expect(false.B)
+  }
+
+  def initRead(dut: Store[_ <: Data], addr: Int, addr_width: Int) = {
+    dut.in.bits.addr.poke(addr.U(addr_width.W))
+    dut.in.bits.isWrite.poke(false.B)
+    dut.in.valid.poke(true.B)
+    dut.out.ready.poke(false.B)
+  }
+
+  def initWrite(dut: Store[_ <: Data], addr: Int, addr_width: Int) = {
+    dut.in.bits.addr.poke(addr.U(addr_width.W))
+    dut.in.bits.isWrite.poke(true.B)
+    dut.in.valid.poke(true.B)
+    dut.out.ready.poke(false.B)
+  }
+
+  def checkOutputValid(dut: Store[_ <: Data]) = {
+    dut.in.ready.expect(false.B)
+    dut.out.valid.expect(true.B)
+  }
+
+  def checkDelayedOutput(dut: Store[_ <: Data], delay: Int) = {
+    for (cycles <- 0 until delay) {
+      step(dut)
+      dut.out.valid.expect(false.B)
+    }
+    step(dut)
+    checkOutputValid(dut)
+  }
+
+  def acknowledgeOutput(dut: Store[_ <: Data]) = {
+    dut.in.valid.poke(false.B)
+    dut.out.ready.poke(true.B)
+    step(dut)
+  }
+
+  behavior of "Store"
+
   it should "read data from memory and latch it until CPU is ready" in {
     for (isCpuWaiting <- List(false, true)) {
       for (delay <- List(6, 2, 1)) {
-        test(new Store(numSets = 8, numWays = 3, delay = delay, dataType = Vec(2, UInt(8.W))))
-          .withAnnotations(Seq(WriteVcdAnnotation)) { dut =>
+        test(new Store(
+          depth = 8,
+          delay = delay,
+          dataType = Vec(3, Vec(2, UInt(8.W)))
+        )).withAnnotations(Seq(WriteVcdAnnotation)) { dut =>
 
           // Startup
-          dut.in.valid.poke(false.B)
-          dut.in.bits.isWrite.poke(false.B)
-          dut.out.ready.poke(false.B)
-          dut.out.valid.expect(false.B)
-          dut.clock.step()
+          startup(dut)
 
           // Should be in Idle
-          dut.in.ready.expect(true.B)
-          dut.out.valid.expect(false.B)
-          dut.clock.step()
+          checkIdle(dut)
+          step(dut)
 
-          // Initiating read operation
-          dut.in.bits.addr.poke(5.U(3.W))
-          dut.in.bits.isWrite.poke(false.B)
-          dut.in.valid.poke(true.B)
+          // Initiate read operation
+          initRead(dut, 5, 3)
 
-          // Internal delay, marked by `out.valid` stalls the CPU
-          for (cycles <- 0 until delay) {
-            dut.clock.step()
-            dut.out.valid.expect(false.B)
-          }
+          // Should become valid after internal delay, marked by `out.valid` stalls the CPU
+          checkDelayedOutput(dut, delay)
 
-          // Enters Valid state after known delay
-          dut.clock.step()
-          dut.in.ready.expect(false.B)
-          dut.out.valid.expect(true.B)
-
-          // Waits in Done state with latched data until CPU is ready
+          // Wait in Done state with latched data until CPU is ready
           if (!isCpuWaiting) {
-            for (cycles <- 0 until 3) {
-              dut.clock.step()
-            }
-            dut.out.valid.expect(true.B)
-            dut.in.ready.expect(false.B)
+            step(dut, 3)
+            checkOutputValid(dut)
           }
 
-          dut.in.valid.poke(false.B)
-          dut.out.ready.poke(true.B)
+          // Acknowledge output reading
+          acknowledgeOutput(dut)
 
-          // Enters Idle again
-          dut.clock.step()
-          dut.in.ready.expect(true.B)
-          dut.out.valid.expect(false.B)
+          // Should be in Idle again
+          checkIdle(dut)
         }
       }
     }
@@ -82,20 +116,18 @@ class StoreTest extends AnyFlatSpec with ChiselScalatestTester {
   it should "write data to memory and wait until CPU acknowledgement" in {
     for (isCpuWaiting <- List(false, true)) {
       for (delay <- List(6, 2, 1)) {
-        test(new Store(numSets = 8, numWays = 3, delay = delay, dataType = Vec(2, UInt(8.W))))
-          .withAnnotations(Seq(WriteVcdAnnotation)) { dut =>
+        test(new Store(
+          depth = 8,
+          delay = delay,
+          dataType = Vec(3, Vec(2, UInt(8.W)))
+        )).withAnnotations(Seq(WriteVcdAnnotation)) { dut =>
 
           // Startup
-          dut.in.valid.poke(false.B)
-          dut.in.bits.isWrite.poke(false.B)
-          dut.out.ready.poke(false.B)
-          dut.out.valid.expect(false.B)
-          dut.clock.step()
+          startup(dut)
 
           // Should be in Idle
-          dut.in.ready.expect(true.B)
-          dut.out.valid.expect(false.B)
-          dut.clock.step()
+          checkIdle(dut)
+          step(dut)
 
           // Initiating write operation
           for (way <- 0 until 3) {
@@ -103,69 +135,40 @@ class StoreTest extends AnyFlatSpec with ChiselScalatestTester {
               dut.in.bits.dataIn(way)(block).poke(way.U(8.W))
             }
           }
-          dut.in.bits.addr.poke(5.U(3.W))
-          dut.in.bits.isWrite.poke(true.B)
-          dut.in.valid.poke(true.B)
+          initWrite(dut, 5, 3)
 
-          // Internal delay, marked by `out.valid` stalls the CPU
-          for (cycles <- 0 until delay) {
-            dut.clock.step()
-            dut.out.valid.expect(false.B)
-          }
-
-          // Enters Valid state after known delay
-          dut.clock.step()
-          dut.in.ready.expect(false.B)
-          dut.out.valid.expect(true.B)
+          // Should become valid after internal delay, marked by `out.valid` stalls the CPU
+          checkDelayedOutput(dut, delay)
 
           // Waits in Done state with latched data until CPU is ready
           if (!isCpuWaiting) {
-            for (cycles <- 0 until 3) {
-              dut.clock.step()
-            }
-            dut.out.valid.expect(true.B)
-            dut.in.ready.expect(false.B)
+            step(dut, 3)
+            checkOutputValid(dut)
           }
 
-          dut.in.valid.poke(false.B)
-          dut.out.ready.poke(true.B)
+          // Acknowledge output reading
+          acknowledgeOutput(dut)
+
+          // Should be in Idle again
+          checkIdle(dut)
 
           // Initiating read operation
-          dut.clock.step()
-          dut.in.ready.expect(true.B)
-          dut.out.valid.expect(false.B)
-          dut.in.bits.addr.poke(5.U(3.W))
-          dut.in.bits.isWrite.poke(false.B)
-          dut.in.valid.poke(true.B)
-          dut.out.ready.poke(false.B)
+          initRead(dut, 5, 3)
 
-          // Internal delay, marked by `out.valid` stalls the CPU
-          for (cycles <- 0 until delay) {
-            dut.clock.step()
-            dut.out.valid.expect(false.B)
-          }
+          // Should become valid after internal delay, marked by `out.valid` stalls the CPU
+          checkDelayedOutput(dut, delay)
 
-          // Enters Valid state after known delay
-          dut.clock.step()
-          dut.in.ready.expect(false.B)
-          dut.out.valid.expect(true.B)
-
-          // Waits in Done state with latched data until CPU is ready
+          // Wait in Done state with latched data until CPU is ready
           if (!isCpuWaiting) {
-            for (cycles <- 0 until 3) {
-              dut.clock.step()
-            }
-            dut.out.valid.expect(true.B)
-            dut.in.ready.expect(false.B)
+            step(dut, 3)
+            checkOutputValid(dut)
           }
 
-          dut.in.valid.poke(false.B)
-          dut.out.ready.poke(true.B)
+          // Acknowledge output reading
+          acknowledgeOutput(dut)
 
-          // Enters Idle again
-          dut.clock.step()
-          dut.in.ready.expect(true.B)
-          dut.out.valid.expect(false.B)
+          // Should be in Idle again
+          checkIdle(dut)
         }
       }
     }

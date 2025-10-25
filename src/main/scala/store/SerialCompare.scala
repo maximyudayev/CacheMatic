@@ -50,9 +50,9 @@ class SerialCompare(numSets: Int, numWays: Int, blockSize: Int, wordSize: Int, p
   val dataOutDataStore = Wire(Vec(numWays, dataStoreEntry))
 
   // Submodules
-  val tagStore = Module(new Store(numSets, numWays, 0, tagStoreEntry))
+  val tagStore = Module(new Store(numSets, 0, Vec(numWays, tagStoreEntry)))
   val tagMatch = Module(new TagMatch(numWays, tagStoreEntry))
-  val dataStore = Module(new Store(numSets, numWays, 0, dataStoreEntry))
+  val dataStore = Module(new Store(numSets, 0, Vec(numWays, dataStoreEntry)))
   val blockMatch = Module(new WordMatch(numWays, blockSize, wordSize, mmAddrType.numBlockOffsetBits))
 
   // Connect both stores to the set field of the requested main memory address

@@ -17,20 +17,19 @@ object StoreState extends ChiselEnum {
   *   TODO: Add the functionality to mask inputs to write individual byte or word to memory
   *   TODO: Enable burst transactions (R/W without Idle and Hold state in between if new data is available)
   */
-class Store[T <: Data](numSets: Int, numWays: Int, delay: Int, private val dataType: T) extends Module {
-  require(isPowerOfTwo(numSets),  "Number of sets must be positive and a power of 2")
-  require(numWays > 0,            "Number of ways must be a positive number")
-  require(delay > 0,              "SRAM access delay spec must be a positive number")
+class Store[T <: Data](depth: Int, delay: Int, private val dataType: T) extends Module {
+  require(depth > 0,    "Depth of memory must be positive")
+  require(delay > 0,    "SRAM access delay spec must be a positive number")
 
   import StoreState._
 
   val in = IO(Flipped(Decoupled(new Bundle {
-    val addr = UInt(log2Ceil(numSets).W)
+    val addr = UInt(log2Ceil(depth).W)
     val isWrite = Bool()
-    val dataIn = Vec(numWays, dataType.cloneType)
+    val dataIn = dataType.cloneType
   })))
   val out = IO(Decoupled(new Bundle {
-    val dataOut = Vec(numWays, dataType.cloneType)
+    val dataOut = dataType.cloneType
   }))
 
 /**
@@ -38,7 +37,7 @@ class Store[T <: Data](numSets: Int, numWays: Int, delay: Int, private val dataT
   *   NOTE: Reads the whole set. Emulates function of SRAM, not construction -> replace with actual SRAM technology
   *     [OpenRAM]: https://escholarship.org/content/qt8x19c778/qt8x19c778_noSplash_b2b3fbbb57f1269f86d0de77865b0691.pdf
   */
-  val store = SyncReadMem(numSets, Vec(numWays, dataType.cloneType))
+  val store = SyncReadMem(depth, dataType.cloneType)
 
 /**
   * FSM (Moore)
@@ -78,7 +77,7 @@ class Store[T <: Data](numSets: Int, numWays: Int, delay: Int, private val dataT
   // Output logic
   // Memory output is latched until upstream module asserts successful read of the data
   val en = WireDefault(false.B)
-  val dataOutReg = Reg(Vec(numWays, dataType.cloneType))
+  val dataOutReg = Reg(dataType.cloneType)
   in.ready := WireDefault(true.B)
   out.valid := WireDefault(false.B)
   out.bits.dataOut := DontCare

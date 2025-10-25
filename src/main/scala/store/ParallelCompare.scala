@@ -50,10 +50,10 @@ class ParallelCompare(numSets: Int, numWays: Int, blockSize: Int, wordSize: Int,
   val dataOutDataStore = Wire(Vec(numWays, dataStoreEntry))
 
   // Submodules
-  val tagStore = Module(new Store(numSets, numWays, 0, tagStoreEntry))
+  val tagStore = Module(new Store(numSets, 0, Vec(numWays, tagStoreEntry)))
   val tagMatch = Module(new TagMatch(numWays, tagStoreEntry))
-  val dataStore = Module(new Store(numSets, numWays, 0, dataStoreEntry))
-  val blockMatch = Module(new WordMatch(numWays, blockSize, wordSize, mmAddrType.numBlockOffsetBits))
+  val dataStore = Module(new Store(numSets, 0, Vec(numWays, dataStoreEntry)))
+  val wordMatch = Module(new WordMatch(numWays, blockSize, wordSize, mmAddrType.numBlockOffsetBits))
 
   tagStore.in.bits.addr := io.mmAddr.setId
   dataStore.in.bits.addr := io.mmAddr.setId
@@ -61,9 +61,9 @@ class ParallelCompare(numSets: Int, numWays: Int, blockSize: Int, wordSize: Int,
   tagMatch.io.tag := io.mmAddr.tag
   tagMatch.io.vecTags := tagStore.out.bits.dataOut
 
-  blockMatch.io.idWay := tagMatch.io.idWay
-  blockMatch.io.vecWords := dataStore.out.bits.dataOut
-  blockMatch.io.blockOffset := io.mmAddr.blockOffset
+  wordMatch.io.idWay := tagMatch.io.idWay
+  wordMatch.io.vecWords := dataStore.out.bits.dataOut
+  wordMatch.io.blockOffset := io.mmAddr.blockOffset
 
   // TODO: Connect both stores to the control signals of the FSM
   // io.isHit := tagMatch.io.isHit
