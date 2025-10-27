@@ -12,22 +12,6 @@ object CacheType extends ChiselEnum {
   val Instruction, Data = Value
 }
 
-/**
- * IO Bundle for the Memory-facing side of the cache.
- * Has separate channels for read and write requests (write-through).
- */
-class MemIO(val addrWidth: Int, val dataWidth: Int) extends Bundle {
-  // Read channel
-  val read_req = Decoupled(UInt(addrWidth.W)) // Memory read request (block-aligned address)
-  val read_resp = Flipped(Decoupled(UInt(dataWidth.W)))
-
-  // Write channel (for write-through)
-  val write_req = Decoupled(new Bundle {
-    val addr = UInt(addrWidth.W)
-    val data = UInt(dataWidth.W)
-  })
-}
-
 class DirectMapped(
   val cacheType: CacheType.Type, 
   val cacheSizeBytes: Int, 
@@ -43,7 +27,8 @@ class DirectMapped(
     // Decoupled(...) creates a ready/valid interface for outputs
     val cpuRsp = Decoupled(new MemResponseIO)
     // Memory-facing interface
-    val mem = new MemIO(addrWidth, dataWidth)
+    val memReq = Decoupled(new MemRequestIO)
+    val memRsp = Flipped(Decoupled(new MemResponseIO))
   })
 
   val numLines   = cacheSizeBytes / blockSizeBytes
@@ -85,40 +70,37 @@ class DirectMapped(
   // val memReadRespReadyReg   = RegInit(true.B)
   val cpuRspValidReg        = RegInit(false.B)
   val cpuRspDataReg         = RegInit(0.U(dataWidth.W))
-  val memReadReqValidReg    = RegInit(false.B)
-  val memReadReqAddrReg     = RegInit(0.U(addrWidth.W))
-  val memWriteReqValidReg   = RegInit(false.B)
-  val memWriteReqAddrReg    = RegInit(0.U(addrWidth.W))
-  val memWriteReqDataReg    = RegInit(0.U(dataWidth.W))
+  val memReqValidReg    = RegInit(false.B)
+  val memReqAddrReg     = RegInit(0.U(addrWidth.W))
+  val memReqDataReg    = RegInit(0.U(dataWidth.W))
+  val memReqIsWrite        = RegInit(false.B)
 
   val isHit  = validArray(cpuReqIndex) && (tagArray(cpuReqIndex) === cpuReqTag)
-  // val missWire = !hitWire
   val isWrite = io.cpuReq.bits.isWrite && (cacheType == CacheType.Data).B
 
   // --- Default signals assignments ---
   // io.cpuReq.ready := cpuReqReadyReg
   io.cpuReq.ready := (state === s_IDLE)
-  // io.mem.read_resp.ready := memReadRespReadyReg
-  io.mem.read_resp.ready := true.B  // always ready to accept memory responses
+  // io.memRsp.ready := memReadRespReadyReg
+  io.memRsp.ready := true.B  // always ready to accept memory responses
 
   io.cpuRsp.valid := cpuRspValidReg
   io.cpuRsp.bits.dataResponse := cpuRspDataReg
-  io.mem.read_req.valid := memReadReqValidReg
-  io.mem.read_req.bits := memReadReqAddrReg
-  io.mem.write_req.valid := memWriteReqValidReg
-  io.mem.write_req.bits.addr := memWriteReqAddrReg
-  io.mem.write_req.bits.data := memWriteReqDataReg
+  io.memReq.valid := memReqValidReg
+  io.memReq.bits.addrRequest := memReqAddrReg
+  io.memReq.bits.dataRequest := memReqDataReg
+  io.memReq.bits.isWrite := memReqIsWrite
+  io.memReq.bits.activeByteLane := "b1111".U // default receive all bytes
 
   // Default regs values
   // cpuReqReadyReg := true.B
   // memReadRespReadyReg := true.B
   cpuRspValidReg := false.B
   cpuRspDataReg  := 0.U
-  memReadReqValidReg := false.B
-  memReadReqAddrReg  := 0.U
-  memWriteReqValidReg := false.B
-  memWriteReqAddrReg  := 0.U
-  memWriteReqDataReg  := 0.U
+  memReqValidReg := false.B
+  memReqAddrReg  := 0.U
+  memReqDataReg  := 0.U
+  memReqIsWrite  := false.B
 
   switch(state) {
     is(s_IDLE) {
@@ -130,9 +112,10 @@ class DirectMapped(
             // update cache line
             dataArray(cpuReqIndex)(word_offset) := io.cpuReq.bits.dataRequest
             // write through to memory
-            memWriteReqValidReg := true.B
-            memWriteReqAddrReg := cpuReqAddr
-            memWriteReqDataReg := io.cpuReq.bits.dataRequest
+            memReqValidReg := true.B
+            memReqAddrReg := cpuReqAddr
+            memReqDataReg := io.cpuReq.bits.dataRequest
+            memReqIsWrite := true.B
           } .otherwise {
             state := s_READ_HIT
             // Read Hit:
@@ -145,8 +128,9 @@ class DirectMapped(
           // Send read request to memory, starting from first word of the cache line
           state := s_MEM_REQ_START
           // cpuReqReadyReg := false.B // stall CPU until miss is handled
-          memReadReqValidReg := true.B
-          memReadReqAddrReg := cacheLineBaseAddr
+          memReqValidReg := true.B
+          memReqAddrReg := cacheLineBaseAddr
+          memReqIsWrite := false.B
           missWordCounter := 0.U // reset word counter
           // save miss request info for later use
           missIsWrite := isWrite
@@ -161,15 +145,15 @@ class DirectMapped(
       }
     }
     is(s_WRITE_HIT) {
-      when (io.mem.write_req.valid && io.mem.write_req.ready) {
+      when (io.memReq.valid && io.memReq.ready) {
         state := s_IDLE
       }
     }
     is(s_MEM_REQ_START) {
       // send read request from cache to memory
-      when(io.mem.read_req.valid && io.mem.read_req.ready) {
+      when(io.memReq.valid && io.memReq.ready) {
         state := s_MEM_RESP_WAIT
-        memReadReqValidReg := false.B // deassert read request valid
+        memReqValidReg := false.B // deassert read request valid
         // memReadRespReadyReg := true.B // ready to receive memory response
       }
 
@@ -177,9 +161,9 @@ class DirectMapped(
     // wait for memory response
     is(s_MEM_RESP_WAIT) {
       // wait for memory response with the requested cache line
-      when(io.mem.read_resp.valid && io.mem.read_resp.ready) {
+      when(io.memRsp.valid && io.memRsp.ready) {
         // store the received word into the cache line
-        dataArray(missIndex)(missWordCounter) := io.mem.read_resp.bits
+        dataArray(missIndex)(missWordCounter) := io.memRsp.bits.dataResponse
 
         when(missWordCounter === (wordsPerBlock-1).U) {
           // last word received
@@ -193,14 +177,15 @@ class DirectMapped(
             // update cache line with the missed write data
             dataArray(missIndex)(missWordOffset) := missWData
             // write through to memory
-            memWriteReqValidReg := true.B
-            memWriteReqAddrReg := missAddr
-            memWriteReqDataReg := missWData
+            memReqValidReg := true.B
+            memReqAddrReg := missAddr
+            memReqDataReg := missWData
+            memReqIsWrite := true.B
           } .otherwise {
             // Read miss:
             // return the requested data to CPU
             val cpuRspData = Mux(missWordOffset === (wordsPerBlock - 1).U,
-                     io.mem.read_resp.bits,
+                     io.memRsp.bits.dataResponse,
                      dataArray(missIndex)(missWordOffset))
             cpuRspValidReg := true.B
             cpuRspDataReg := cpuRspData
@@ -211,17 +196,18 @@ class DirectMapped(
           state := s_MEM_REQ_NEXT
           missWordCounter := missWordCounter + 1.U
           // send read request for next word in the cache line
-          memReadReqValidReg := true.B
-          memReadReqAddrReg := cacheLineBaseAddr + ((missWordCounter + 1.U) << log2Ceil(dataWidth / 8).U)
+          memReqValidReg := true.B
+          memReqAddrReg := cacheLineBaseAddr + ((missWordCounter + 1.U) << log2Ceil(dataWidth / 8).U)
+          memReqIsWrite := false.B
           // memReadRespReadyReg := false.B // deassert ready until next word is requested
         }
       }
     }
     is(s_MEM_REQ_NEXT) {
       // send read request for next word in the cache line
-      when(io.mem.read_req.valid && io.mem.read_req.ready) {
+      when(io.memReq.valid && io.memReq.ready) {
         state := s_MEM_RESP_WAIT
-        memReadReqValidReg := false.B // deassert read request valid
+        memReqValidReg := false.B // deassert read request valid
         // memReadRespReadyReg := true.B // ready to receive memory response
       }
     }
