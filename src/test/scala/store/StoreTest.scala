@@ -23,7 +23,9 @@ import chiseltest._
   */
 class StoreTest extends AnyFlatSpec with ChiselScalatestTester {
   def step(dut: Store[_ <: Data], n: Int = 1) = {
-    dut.clock.step(n)
+    for (_ <- 0 until n) {
+      dut.clock.step()
+    }
   }
 
   def startup(dut: Store[_ <: Data]) = {
@@ -39,15 +41,15 @@ class StoreTest extends AnyFlatSpec with ChiselScalatestTester {
     dut.out.valid.expect(false.B)
   }
 
-  def initRead(dut: Store[_ <: Data], addr: Int, addr_width: Int) = {
-    dut.in.bits.addr.poke(addr.U(addr_width.W))
+  def initRead(dut: Store[_ <: Data], addr: Int) = {
+    dut.in.bits.addr.poke(addr.U)
     dut.in.bits.isWrite.poke(false.B)
     dut.in.valid.poke(true.B)
     dut.out.ready.poke(false.B)
   }
 
-  def initWrite(dut: Store[_ <: Data], addr: Int, addr_width: Int) = {
-    dut.in.bits.addr.poke(addr.U(addr_width.W))
+  def initWrite(dut: Store[_ <: Data], addr: Int) = {
+    dut.in.bits.addr.poke(addr.U)
     dut.in.bits.isWrite.poke(true.B)
     dut.in.valid.poke(true.B)
     dut.out.ready.poke(false.B)
@@ -76,12 +78,18 @@ class StoreTest extends AnyFlatSpec with ChiselScalatestTester {
   behavior of "Store"
 
   it should "read data from memory and latch it until CPU is ready" in {
+    val depth = 8
+    val numWays = 3
+    val blockSize = 2
+    val wordSize = 8
+    val set = 5
     for (isCpuWaiting <- List(false, true)) {
-      for (delay <- List(6, 2, 1)) {
+      for (numDelayCycles <- List(6, 2, 1)) {
         test(new Store(
-          depth = 8,
-          delay = delay,
-          dataType = Vec(3, Vec(2, UInt(8.W)))
+          depth = depth,
+          numDelayCycles = numDelayCycles,
+          numWays = numWays,
+          dataType = Vec(blockSize, UInt(wordSize.W))
         )).withAnnotations(Seq(WriteVcdAnnotation)) { dut =>
 
           // Startup
@@ -92,10 +100,10 @@ class StoreTest extends AnyFlatSpec with ChiselScalatestTester {
           step(dut)
 
           // Initiate read operation
-          initRead(dut, 5, 3)
+          initRead(dut, set)
 
           // Should become valid after internal delay, marked by `out.valid` stalls the CPU
-          checkDelayedOutput(dut, delay)
+          checkDelayedOutput(dut, numDelayCycles)
 
           // Wait in Done state with latched data until CPU is ready
           if (!isCpuWaiting) {
@@ -113,13 +121,19 @@ class StoreTest extends AnyFlatSpec with ChiselScalatestTester {
     }
   }
 
-  it should "write data to memory and wait until CPU acknowledgement" in {
+  it should "write data to full cache set and wait until CPU acknowledgement" in {
+    val depth = 8
+    val numWays = 3
+    val blockSize = 2
+    val wordSize = 8
+    val set = 5
     for (isCpuWaiting <- List(false, true)) {
-      for (delay <- List(6, 2, 1)) {
+      for (numDelayCycles <- List(6, 2, 1)) {
         test(new Store(
-          depth = 8,
-          delay = delay,
-          dataType = Vec(3, Vec(2, UInt(8.W)))
+          depth = depth,
+          numDelayCycles = numDelayCycles,
+          numWays = numWays,
+          dataType = Vec(blockSize, UInt(wordSize.W))
         )).withAnnotations(Seq(WriteVcdAnnotation)) { dut =>
 
           // Startup
@@ -129,16 +143,17 @@ class StoreTest extends AnyFlatSpec with ChiselScalatestTester {
           checkIdle(dut)
           step(dut)
 
-          // Initiating write operation
-          for (way <- 0 until 3) {
-            for (block <- 0 until 2) {
-              dut.in.bits.dataIn(way)(block).poke(way.U(8.W))
+          // Initiating write operation to all ways in the set
+          for (way <- 0 until numWays) {
+            for (block <- 0 until blockSize) {
+              dut.in.bits.dataIn(way)(block).poke(way.U(wordSize.W))
             }
+            dut.in.bits.mask(way).poke(true.B)
           }
-          initWrite(dut, 5, 3)
+          initWrite(dut, set)
 
           // Should become valid after internal delay, marked by `out.valid` stalls the CPU
-          checkDelayedOutput(dut, delay)
+          checkDelayedOutput(dut, numDelayCycles)
 
           // Waits in Done state with latched data until CPU is ready
           if (!isCpuWaiting) {
@@ -153,10 +168,10 @@ class StoreTest extends AnyFlatSpec with ChiselScalatestTester {
           checkIdle(dut)
 
           // Initiating read operation
-          initRead(dut, 5, 3)
+          initRead(dut, set)
 
           // Should become valid after internal delay, marked by `out.valid` stalls the CPU
-          checkDelayedOutput(dut, delay)
+          checkDelayedOutput(dut, numDelayCycles)
 
           // Wait in Done state with latched data until CPU is ready
           if (!isCpuWaiting) {
@@ -169,6 +184,81 @@ class StoreTest extends AnyFlatSpec with ChiselScalatestTester {
 
           // Should be in Idle again
           checkIdle(dut)
+          step(dut, 3)
+        }
+      }
+    }
+  }
+
+  it should "write data to a single way in a cache set and wait until CPU acknowledgement" in {
+    val depth = 8
+    val numWays = 3
+    val blockSize = 2
+    val wordSize = 8
+    val mask = 2
+    val set = 3
+    for (isCpuWaiting <- List(false, true)) {
+      for (numDelayCycles <- List(6, 2, 1)) {
+        test(new Store(
+          depth = depth,
+          numDelayCycles = numDelayCycles,
+          numWays = numWays,
+          dataType = Vec(blockSize, UInt(wordSize.W))
+        )).withAnnotations(Seq(WriteVcdAnnotation)) { dut =>
+
+          // Startup
+          startup(dut)
+
+          // Should be in Idle
+          checkIdle(dut)
+          step(dut)
+
+          // Initiating write operation to one way in the set (but provide data to the complete bus)
+          for (way <- 0 until numWays) {
+            for (block <- 0 until blockSize) {
+              dut.in.bits.dataIn(way)(block).poke(way.U(wordSize.W))
+            }
+          }
+          dut.in.bits.mask(mask).poke(true.B)
+
+          initWrite(dut, set)
+
+          // Should become valid after internal delay, marked by `out.valid` stalls the CPU
+          checkDelayedOutput(dut, numDelayCycles)
+
+          // Waits in Done state with latched data until CPU is ready
+          if (!isCpuWaiting) {
+            step(dut, 3)
+            checkOutputValid(dut)
+          }
+
+          // Acknowledge output reading
+          acknowledgeOutput(dut)
+
+          // Should be in Idle again
+          checkIdle(dut)
+
+          // Initiating read operation
+          initRead(dut, set)
+
+          // Should become valid after internal delay, marked by `out.valid` stalls the CPU
+          checkDelayedOutput(dut, numDelayCycles)
+
+          // Wait in Done state with latched data until CPU is ready
+          if (!isCpuWaiting) {
+            step(dut, 3)
+            checkOutputValid(dut)
+          }
+
+          // Acknowledge output reading
+          for (block <- 0 until blockSize) {
+            dut.out.bits.dataOut(mask)(block).expect(mask.U(wordSize.W))
+          }
+          acknowledgeOutput(dut)
+
+          // Should be in Idle again
+          checkIdle(dut)
+          step(dut, 3)
         }
       }
     }
