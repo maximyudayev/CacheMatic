@@ -16,6 +16,7 @@ object StoreState extends ChiselEnum {
   *   TODO: Replace the SyncReadMem module with actual parametrized black-box Verilog OpenRAM module, once defined
   *   TODO: Add the functionality to mask inputs to write individual byte or word to memory
   *   TODO: Enable burst/coalesced transactions (R/W without Idle and Hold state in between if new data is available)
+  *   TODO: Adapt to wrap and match the functionality of OpenRAM
   */
 class Store[T <: Data](depth: Int, numDelayCycles: Int, numWays: Int, private val dataType: T) extends Module {
   require(depth > 0,          "Depth of memory must be positive")
@@ -26,9 +27,9 @@ class Store[T <: Data](depth: Int, numDelayCycles: Int, numWays: Int, private va
 
   val in = IO(Flipped(Decoupled(new Bundle {
     val addr = UInt(log2Ceil(depth).W)
+    val mask = Vec(numWays, Bool())
     val isWrite = Bool()
     val dataIn = Vec(numWays, dataType)
-    val mask = Vec(numWays, Bool())
   })))
   val out = IO(Decoupled(new Bundle {
     val dataOut = Vec(numWays, dataType)
@@ -47,6 +48,15 @@ class Store[T <: Data](depth: Int, numDelayCycles: Int, numWays: Int, private va
   val stateReg = RegInit(sIdle)
   val numDelayBits = if (numDelayCycles > 1) log2Ceil(numDelayCycles) else 1
   val delayCounterReg = RegInit(0.U(numDelayBits.W))
+  // Request inputs are latched for async memory access
+  val en = WireDefault(false.B)
+  val addrReg = RegInit(0.U(log2Ceil(depth).W))
+  val maskReg = Reg(Vec(numWays, Bool()))
+  val isWriteReg = RegInit(false.B)
+  val dataInReg = Reg(Vec(numWays, dataType))
+  // Memory output is latched by the memory module's output registers
+  // TODO: latch memory read data into the register until upstream acknowledges read
+  // val dataOutReg = Reg(Vec(numWays, dataType))
 
   // State transitions
   switch (stateReg) {
@@ -56,9 +66,9 @@ class Store[T <: Data](depth: Int, numDelayCycles: Int, numWays: Int, private va
       }
     }
     is (sAccess) {
-      when ((delayCounterReg === (numDelayCycles-1).U(numDelayBits.W)) && ~in.bits.isWrite) { // read operation -> latch memory output
+      when ((delayCounterReg === (numDelayCycles-1).U(numDelayBits.W)) && ~isWriteReg) { // read operation -> latch memory output
         stateReg := sValid
-      } .elsewhen ((delayCounterReg === (numDelayCycles-1).U(numDelayBits.W)) && in.bits.isWrite) { // write operation
+      } .elsewhen ((delayCounterReg === (numDelayCycles-1).U(numDelayBits.W)) && isWriteReg) { // write operation
         stateReg := sDone
       }
     }
@@ -77,26 +87,21 @@ class Store[T <: Data](depth: Int, numDelayCycles: Int, numWays: Int, private va
   }
 
   // Output logic
-  // Memory output is latched until upstream module asserts successful read of the data
-  val en = WireDefault(false.B)
-  val dataOutReg = Reg(Vec(numWays, dataType))
-
   in.ready := WireDefault(false.B)
   out.valid := WireDefault(false.B)
-
   out.bits.dataOut := DontCare
 
   // Returns K-way elements
   when (en) {
-    val rwPort = store(in.bits.addr)
-    when (in.bits.isWrite) {
+    val rwPort = store(addrReg)
+    when (isWriteReg) {
       for (way <- 0 until numWays) {
-        when (in.bits.mask(way)) {
-          rwPort(way) := in.bits.dataIn(way)
+        when (maskReg(way)) {
+          rwPort(way) := dataInReg(way)
         }
       }
     } .otherwise {
-      dataOutReg := rwPort
+      out.bits.dataOut := rwPort
     }
   }
 
@@ -104,9 +109,10 @@ class Store[T <: Data](depth: Int, numDelayCycles: Int, numWays: Int, private va
     is (sIdle) {
       in.ready := true.B
       delayCounterReg := 0.U
-      when (in.valid) {
-        en := true.B
-      }
+      addrReg := in.bits.addr
+      maskReg := in.bits.mask
+      isWriteReg := in.bits.isWrite
+      dataInReg := in.bits.dataIn
     }
     is (sAccess) {
       en := true.B
@@ -114,11 +120,14 @@ class Store[T <: Data](depth: Int, numDelayCycles: Int, numWays: Int, private va
     }
     is (sValid) {
       out.valid := true.B
-      out.bits.dataOut := dataOutReg
+      // out.bits.dataOut := dataOutReg
     }
     is (sDone) {
       out.valid := true.B
-      out.bits.dataOut := dataOutReg
+      // out.bits.dataOut := dataOutReg
+      when (out.ready) {
+        delayCounterReg := 0.U
+      }
     }
   }
 }

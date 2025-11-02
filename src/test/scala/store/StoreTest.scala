@@ -218,6 +218,7 @@ class StoreTest extends AnyFlatSpec with ChiselScalatestTester {
             for (block <- 0 until blockSize) {
               dut.in.bits.dataIn(way)(block).poke(way.U(wordSize.W))
             }
+            dut.in.bits.mask(way).poke(false.B)
           }
           dut.in.bits.mask(mask).poke(true.B)
 
@@ -259,6 +260,53 @@ class StoreTest extends AnyFlatSpec with ChiselScalatestTester {
           // Should be in Idle again
           checkIdle(dut)
           step(dut, 3)
+
+          // Initiating write operation to one way in the set (but provide data to the complete bus)
+          for (way <- 0 until numWays) {
+            for (block <- 0 until blockSize) {
+              dut.in.bits.dataIn(way)(block).poke(1.U(wordSize.W))
+            }
+            dut.in.bits.mask(way).poke(false.B)
+          }
+          dut.in.bits.mask(mask).poke(true.B)
+
+          initWrite(dut, 1)
+
+          // Should become valid after internal delay, marked by `out.valid` stalls the CPU
+          checkDelayedOutput(dut, numDelayCycles)
+
+          // Waits in Done state with latched data until CPU is ready
+          if (!isCpuWaiting) {
+            step(dut, 3)
+            checkOutputValid(dut)
+          }
+
+          // Acknowledge output reading
+          acknowledgeOutput(dut)
+
+          // Should be in Idle again
+          checkIdle(dut)
+
+          // Initiating read operation
+          initRead(dut, 1)
+
+          // Should become valid after internal delay, marked by `out.valid` stalls the CPU
+          checkDelayedOutput(dut, numDelayCycles)
+
+          // Wait in Done state with latched data until CPU is ready
+          if (!isCpuWaiting) {
+            step(dut, 3)
+            checkOutputValid(dut)
+          }
+
+          // Acknowledge output reading
+          for (block <- 0 until blockSize) {
+            dut.out.bits.dataOut(mask)(block).expect(1.U(wordSize.W))
+          }
+          acknowledgeOutput(dut)
+
+          // Should be in Idle again
+          checkIdle(dut)
         }
       }
     }
