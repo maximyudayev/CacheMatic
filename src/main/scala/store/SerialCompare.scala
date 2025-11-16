@@ -15,11 +15,12 @@ object SerialCompareState extends ChiselEnum {
 }
 
 // TODO: compare Tag, but fetch data line by tag decoding index into address
-class SerialCompare(numSets: Int, numWays: Int, blockSize: Int, wordSize: Int, private val mmAddrType: MainMemoryAddress) extends Module {
+class SerialCompare(numSets: Int, numWays: Int, blockSize: Int, wordSize: Int, numDelayCycles: Int = 0, private val mmAddrType: MainMemoryAddress) extends Module {
   require(isPowerOfTwo(numSets),    "Number of sets must be positive and a power of 2")
   require(numWays > 0,              "Number of ways must be a positive number")
   require(isPowerOfTwo(blockSize),  "Cache block/line size must be positive and a power of 2")
   require(isPowerOfTwo(wordSize),   "Word size must be positive and a power of 2")
+  require(numDelayCycles >= 0,      "Cache access delay cycles number must be positive, or 0 (i.e. data available on the next clock cycle)")
 
   import SerialCompareState._
 
@@ -37,22 +38,10 @@ class SerialCompare(numSets: Int, numWays: Int, blockSize: Int, wordSize: Int, p
   val tagStoreEntry = new Tag(mmAddrType.numTagBits)
   val dataStoreEntry = Vec(blockSize, UInt(wordSize.W))
 
-  // Tag store control signals
-  val enTagStore = Bool()
-  val isWriteTagStore = Bool()
-  val dataInTagStore = Wire(Vec(numWays, tagStoreEntry))
-  val dataOutTagStore = Wire(Vec(numWays, tagStoreEntry))
-
-  // Data store control signals
-  val enDataStore = Bool()
-  val isWriteDataStore = Bool()
-  val dataInDataStore = Wire(Vec(numWays, dataStoreEntry))
-  val dataOutDataStore = Wire(Vec(numWays, dataStoreEntry))
-
   // Submodules
-  val tagStore = Module(new Store(numSets, 0, Vec(numWays, tagStoreEntry)))
+  val tagStore = Module(new Store(numSets, numDelayCycles, numWays, tagStoreEntry))
   val tagMatch = Module(new TagMatch(numWays, tagStoreEntry))
-  val dataStore = Module(new Store(numSets, 0, Vec(numWays, dataStoreEntry)))
+  val dataStore = Module(new Store(numSets, numDelayCycles, numWays, dataStoreEntry))
   val blockMatch = Module(new WordMatch(numWays, blockSize, wordSize))
 
   // Connect both stores to the set field of the requested main memory address
